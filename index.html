@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fokus-Timer</title>
+<style>
+  :root {
+    --bg: #f4f3f1;
+    --card: #ffffff;
+    --text: #2b2b2b;
+    --muted: #8a8580;
+    --accent: #e0704a;
+    --accent-soft: #f6dcd2;
+    --ring-bg: #eae7e2;
+    --shadow: 0 20px 50px rgba(0,0,0,0.08);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1b1a19;
+      --card: #262523;
+      --text: #ece9e4;
+      --muted: #9a958f;
+      --accent: #e88a63;
+      --accent-soft: #3a2a24;
+      --ring-bg: #38352f;
+      --shadow: 0 20px 50px rgba(0,0,0,0.4);
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    transition: background 0.4s ease, color 0.4s ease;
+  }
+  .card {
+    background: var(--card);
+    border-radius: 28px;
+    box-shadow: var(--shadow);
+    padding: 40px 44px 32px;
+    width: 380px;
+    text-align: center;
+  }
+  .modes {
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+    margin-bottom: 28px;
+  }
+  .mode-btn {
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 600;
+    padding: 8px 14px;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+  .mode-btn.active {
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+  .ring-wrap {
+    position: relative;
+    width: 260px;
+    height: 260px;
+    margin: 0 auto 28px;
+  }
+  svg { transform: rotate(-90deg); }
+  .ring-bg { stroke: var(--ring-bg); }
+  .ring-fg {
+    stroke: var(--accent);
+    stroke-linecap: round;
+    transition: stroke-dashoffset 1s linear;
+  }
+  .time {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+  .time-value {
+    font-size: 54px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -1px;
+  }
+  .time-label {
+    font-size: 13px;
+    color: var(--muted);
+    margin-top: 4px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+  }
+  .controls {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    margin-bottom: 22px;
+  }
+  .btn {
+    border: none;
+    border-radius: 14px;
+    padding: 13px 26px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 0.1s ease, opacity 0.2s ease;
+  }
+  .btn:active { transform: scale(0.96); }
+  .btn-primary {
+    background: var(--accent);
+    color: #fff;
+    flex: 1;
+  }
+  .btn-secondary {
+    background: var(--ring-bg);
+    color: var(--text);
+  }
+  .stats {
+    display: flex;
+    justify-content: space-between;
+    border-top: 1px solid var(--ring-bg);
+    padding-top: 16px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .stats b {
+    color: var(--text);
+    font-size: 16px;
+    display: block;
+  }
+</style>
+</head>
+<body>
+
+<div class="card">
+  <div class="modes">
+    <button class="mode-btn active" data-mode="work">Fokus 25</button>
+    <button class="mode-btn" data-mode="short">Pause 5</button>
+    <button class="mode-btn" data-mode="long">Lange Pause 15</button>
+  </div>
+
+  <div class="ring-wrap">
+    <svg width="260" height="260">
+      <circle class="ring-bg" cx="130" cy="130" r="115" stroke-width="14" fill="none"/>
+      <circle class="ring-fg" id="ring" cx="130" cy="130" r="115" stroke-width="14" fill="none"/>
+    </svg>
+    <div class="time">
+      <div class="time-value" id="timeValue">25:00</div>
+      <div class="time-label" id="timeLabel">Fokuszeit</div>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button class="btn btn-secondary" id="resetBtn">↺</button>
+    <button class="btn btn-primary" id="startBtn">Start</button>
+  </div>
+
+  <div class="stats">
+    <div>Sessions heute<b id="sessionCount">0</b></div>
+    <div>Fokuszeit heute<b id="focusMinutes">0 min</b></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  const MODES = {
+    work:  { seconds: 25 * 60, label: "Fokuszeit" },
+    short: { seconds: 5 * 60,  label: "Kurze Pause" },
+    long:  { seconds: 15 * 60, label: "Lange Pause" },
+  };
+
+  const ring = document.getElementById("ring");
+  const timeValue = document.getElementById("timeValue");
+  const timeLabel = document.getElementById("timeLabel");
+  const startBtn = document.getElementById("startBtn");
+  const resetBtn = document.getElementById("resetBtn");
+  const modeBtns = document.querySelectorAll(".mode-btn");
+  const sessionCountEl = document.getElementById("sessionCount");
+  const focusMinutesEl = document.getElementById("focusMinutes");
+
+  const RADIUS = 115;
+  const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
+  ring.style.strokeDasharray = CIRCUMFERENCE;
+
+  let currentMode = "work";
+  let totalSeconds = MODES.work.seconds;
+  let remaining = totalSeconds;
+  let timerId = null;
+  let running = false;
+
+  const today = new Date().toISOString().slice(0, 10);
+  let stats = loadStats();
+
+  function loadStats() {
+    try {
+      const raw = JSON.parse(localStorage.getItem("fokusTimerStats") || "{}");
+      if (raw.date === today) return raw;
+    } catch (e) {}
+    return { date: today, sessions: 0, focusMinutes: 0 };
+  }
+
+  function saveStats() {
+    localStorage.setItem("fokusTimerStats", JSON.stringify(stats));
+    sessionCountEl.textContent = stats.sessions;
+    focusMinutesEl.textContent = stats.focusMinutes + " min";
+  }
+
+  function formatTime(s) {
+    const m = Math.floor(s / 60).toString().padStart(2, "0");
+    const sec = Math.floor(s % 60).toString().padStart(2, "0");
+    return m + ":" + sec;
+  }
+
+  function updateDisplay() {
+    timeValue.textContent = formatTime(remaining);
+    const progress = 1 - remaining / totalSeconds;
+    ring.style.strokeDashoffset = CIRCUMFERENCE * (1 - progress);
+  }
+
+  function switchMode(mode, resetRunning = true) {
+    currentMode = mode;
+    totalSeconds = MODES[mode].seconds;
+    remaining = totalSeconds;
+    timeLabel.textContent = MODES[mode].label;
+    modeBtns.forEach(b => b.classList.toggle("active", b.dataset.mode === mode));
+    if (resetRunning) {
+      stopTimer();
+      startBtn.textContent = "Start";
+    }
+    updateDisplay();
+  }
+
+  function playChime() {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const notes = [880, 1108, 1318];
+      notes.forEach((freq, i) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+        const t = ctx.currentTime + i * 0.18;
+        gain.gain.exponentialRampToValueAtTime(0.25, t + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.4);
+        osc.connect(gain).connect(ctx.destination);
+        osc.start(t);
+        osc.stop(t + 0.45);
+      });
+    } catch (e) {}
+  }
+
+  function tick() {
+    remaining -= 1;
+    if (remaining <= 0) {
+      remaining = 0;
+      updateDisplay();
+      onSessionComplete();
+      return;
+    }
+    updateDisplay();
+  }
+
+  function onSessionComplete() {
+    stopTimer();
+    playChime();
+    if (currentMode === "work") {
+      stats.sessions += 1;
+      stats.focusMinutes += 25;
+      saveStats();
+      const nextMode = stats.sessions % 4 === 0 ? "long" : "short";
+      switchMode(nextMode, false);
+    } else {
+      switchMode("work", false);
+    }
+    startBtn.textContent = "Start";
+    document.title = "Fertig! – Fokus-Timer";
+  }
+
+  function startTimer() {
+    if (running) return;
+    running = true;
+    startBtn.textContent = "Pause";
+    timerId = setInterval(tick, 1000);
+  }
+
+  function stopTimer() {
+    running = false;
+    clearInterval(timerId);
+    timerId = null;
+  }
+
+  startBtn.addEventListener("click", () => {
+    if (running) {
+      stopTimer();
+      startBtn.textContent = "Start";
+    } else {
+      startTimer();
+    }
+    document.title = "Fokus-Timer";
+  });
+
+  resetBtn.addEventListener("click", () => {
+    switchMode(currentMode);
+  });
+
+  modeBtns.forEach(btn => {
+    btn.addEventListener("click", () => switchMode(btn.dataset.mode));
+  });
+
+  setInterval(() => {
+    if (running) {
+      document.title = formatTime(remaining) + " – " + MODES[currentMode].label;
+    }
+  }, 1000);
+
+  saveStats();
+  updateDisplay();
+})();
+</script>
+
+</body>
+</html>
