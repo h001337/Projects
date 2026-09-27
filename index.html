@@ -40,12 +40,30 @@
     transition: background 0.4s ease, color 0.4s ease;
   }
   .card {
+    position: relative;
     background: var(--card);
     border-radius: 28px;
     box-shadow: var(--shadow);
     padding: 40px 44px 32px;
     width: 380px;
     text-align: center;
+  }
+  .icon-btn {
+    position: absolute;
+    top: 18px;
+    right: 18px;
+    width: 34px;
+    height: 34px;
+    border: none;
+    background: var(--ring-bg);
+    color: var(--muted);
+    border-radius: 10px;
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
   .modes {
     display: flex;
@@ -140,11 +158,103 @@
     font-size: 16px;
     display: block;
   }
+  .week-stats {
+    margin-top: 18px;
+    border-top: 1px solid var(--ring-bg);
+    padding-top: 16px;
+    text-align: left;
+  }
+  .week-header {
+    display: flex;
+    justify-content: space-between;
+    font-size: 13px;
+    color: var(--muted);
+    margin-bottom: 12px;
+  }
+  .week-header span:last-child {
+    color: var(--text);
+    font-weight: 600;
+  }
+  .week-chart {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    height: 54px;
+  }
+  .week-day {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-end;
+    height: 100%;
+  }
+  .week-bar {
+    width: 100%;
+    max-width: 20px;
+    background: var(--ring-bg);
+    border-radius: 5px;
+    transition: height 0.3s ease;
+  }
+  .week-bar.today { background: var(--accent); }
+  .week-day-label {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 6px;
+  }
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.45);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal {
+    background: var(--card);
+    border-radius: 20px;
+    box-shadow: var(--shadow);
+    padding: 28px;
+    width: 280px;
+    text-align: left;
+  }
+  .modal h2 {
+    margin: 0 0 18px;
+    font-size: 17px;
+    color: var(--text);
+  }
+  .modal label {
+    display: block;
+    font-size: 13px;
+    color: var(--muted);
+    margin-bottom: 14px;
+  }
+  .modal input {
+    display: block;
+    width: 100%;
+    margin-top: 6px;
+    padding: 9px 10px;
+    border-radius: 10px;
+    border: 1px solid var(--ring-bg);
+    background: var(--bg);
+    color: var(--text);
+    font-size: 15px;
+  }
+  .modal-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 6px;
+  }
+  .modal-actions .btn { padding: 11px 20px; }
 </style>
 </head>
 <body>
 
 <div class="card">
+  <button class="icon-btn" id="settingsBtn" aria-label="Einstellungen" title="Einstellungen">⚙</button>
+
   <div class="modes">
     <button class="mode-btn active" data-mode="work">Fokus 25</button>
     <button class="mode-btn" data-mode="short">Pause 5</button>
@@ -171,15 +281,42 @@
     <div>Sessions heute<b id="sessionCount">0</b></div>
     <div>Fokuszeit heute<b id="focusMinutes">0 min</b></div>
   </div>
+
+  <div class="week-stats">
+    <div class="week-header">
+      <span>Diese Woche</span>
+      <span id="weekTotal">0 Sessions · 0 min</span>
+    </div>
+    <div class="week-chart" id="weekChart"></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="settingsOverlay">
+  <div class="modal">
+    <h2>Einstellungen</h2>
+    <label>Fokuszeit (Min)
+      <input type="number" id="settingWork" min="1" max="180">
+    </label>
+    <label>Kurze Pause (Min)
+      <input type="number" id="settingShort" min="1" max="60">
+    </label>
+    <label>Lange Pause (Min)
+      <input type="number" id="settingLong" min="1" max="120">
+    </label>
+    <label>Intervall (Fokus-Sessions bis lange Pause)
+      <input type="number" id="settingInterval" min="1" max="12">
+    </label>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" id="settingsCancel">Abbrechen</button>
+      <button class="btn btn-primary" id="settingsSave">Speichern</button>
+    </div>
+  </div>
 </div>
 
 <script>
 (function () {
-  const MODES = {
-    work:  { seconds: 25 * 60, label: "Fokuszeit" },
-    short: { seconds: 5 * 60,  label: "Kurze Pause" },
-    long:  { seconds: 15 * 60, label: "Lange Pause" },
-  };
+  const DEFAULT_SETTINGS = { work: 25, short: 5, long: 15, interval: 4 };
+  const DAY_LABELS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
 
   const ring = document.getElementById("ring");
   const timeValue = document.getElementById("timeValue");
@@ -187,34 +324,130 @@
   const startBtn = document.getElementById("startBtn");
   const resetBtn = document.getElementById("resetBtn");
   const modeBtns = document.querySelectorAll(".mode-btn");
+  const modeWorkBtn = document.querySelector('.mode-btn[data-mode="work"]');
+  const modeShortBtn = document.querySelector('.mode-btn[data-mode="short"]');
+  const modeLongBtn = document.querySelector('.mode-btn[data-mode="long"]');
   const sessionCountEl = document.getElementById("sessionCount");
   const focusMinutesEl = document.getElementById("focusMinutes");
+  const weekTotalEl = document.getElementById("weekTotal");
+  const weekChartEl = document.getElementById("weekChart");
+  const settingsBtn = document.getElementById("settingsBtn");
+  const settingsOverlay = document.getElementById("settingsOverlay");
+  const settingsCancel = document.getElementById("settingsCancel");
+  const settingsSave = document.getElementById("settingsSave");
+  const settingWork = document.getElementById("settingWork");
+  const settingShort = document.getElementById("settingShort");
+  const settingLong = document.getElementById("settingLong");
+  const settingInterval = document.getElementById("settingInterval");
 
   const RADIUS = 115;
   const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
   ring.style.strokeDasharray = CIRCUMFERENCE;
 
+  let settings = loadSettings();
+  let MODES = buildModes(settings);
+
   let currentMode = "work";
-  let totalSeconds = MODES.work.seconds;
-  let remaining = totalSeconds;
+  let totalSeconds = 0;
+  let remaining = 0;
   let timerId = null;
   let running = false;
 
   const today = new Date().toISOString().slice(0, 10);
-  let stats = loadStats();
+  let history = loadHistory();
 
-  function loadStats() {
+  function loadSettings() {
     try {
-      const raw = JSON.parse(localStorage.getItem("fokusTimerStats") || "{}");
-      if (raw.date === today) return raw;
+      const raw = JSON.parse(localStorage.getItem("fokusTimerSettings"));
+      if (raw && [raw.work, raw.short, raw.long, raw.interval].every(n => Number.isInteger(n) && n > 0)) {
+        return raw;
+      }
     } catch (e) {}
-    return { date: today, sessions: 0, focusMinutes: 0 };
+    return { ...DEFAULT_SETTINGS };
   }
 
-  function saveStats() {
-    localStorage.setItem("fokusTimerStats", JSON.stringify(stats));
-    sessionCountEl.textContent = stats.sessions;
-    focusMinutesEl.textContent = stats.focusMinutes + " min";
+  function saveSettings() {
+    localStorage.setItem("fokusTimerSettings", JSON.stringify(settings));
+  }
+
+  function buildModes(s) {
+    return {
+      work:  { seconds: s.work * 60,  label: "Fokuszeit" },
+      short: { seconds: s.short * 60, label: "Kurze Pause" },
+      long:  { seconds: s.long * 60,  label: "Lange Pause" },
+    };
+  }
+
+  function updateModeButtonLabels() {
+    modeWorkBtn.textContent = "Fokus " + settings.work;
+    modeShortBtn.textContent = "Pause " + settings.short;
+    modeLongBtn.textContent = "Lange Pause " + settings.long;
+  }
+
+  function loadHistory() {
+    try {
+      return JSON.parse(localStorage.getItem("fokusTimerHistory")) || {};
+    } catch (e) {
+      return {};
+    }
+  }
+
+  function saveHistory() {
+    localStorage.setItem("fokusTimerHistory", JSON.stringify(history));
+  }
+
+  function todayEntry() {
+    if (!history[today]) history[today] = { sessions: 0, focusMinutes: 0 };
+    return history[today];
+  }
+
+  function renderDailyStats() {
+    const entry = history[today] || { sessions: 0, focusMinutes: 0 };
+    sessionCountEl.textContent = entry.sessions;
+    focusMinutesEl.textContent = entry.focusMinutes + " min";
+  }
+
+  function weekDates() {
+    const now = new Date();
+    const mondayOffset = (now.getDay() + 6) % 7; // Montag = 0
+    const monday = new Date(now);
+    monday.setDate(now.getDate() - mondayOffset);
+    const dates = [];
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(monday);
+      d.setDate(monday.getDate() + i);
+      dates.push(d.toISOString().slice(0, 10));
+    }
+    return dates;
+  }
+
+  function renderWeekStats() {
+    const dates = weekDates();
+    const entries = dates.map(d => history[d] || { sessions: 0, focusMinutes: 0 });
+    const totalSessions = entries.reduce((sum, e) => sum + e.sessions, 0);
+    const totalMinutes = entries.reduce((sum, e) => sum + e.focusMinutes, 0);
+    weekTotalEl.textContent = totalSessions + " Sessions · " + totalMinutes + " min";
+
+    const maxMinutes = Math.max(1, ...entries.map(e => e.focusMinutes));
+    weekChartEl.innerHTML = "";
+    entries.forEach((entry, i) => {
+      const day = document.createElement("div");
+      day.className = "week-day";
+
+      const bar = document.createElement("div");
+      bar.className = "week-bar" + (dates[i] === today ? " today" : "");
+      const heightPx = entry.focusMinutes === 0 ? 3 : Math.max(4, Math.round((entry.focusMinutes / maxMinutes) * 54));
+      bar.style.height = heightPx + "px";
+      bar.title = entry.sessions + " Sessions, " + entry.focusMinutes + " min";
+
+      const label = document.createElement("div");
+      label.className = "week-day-label";
+      label.textContent = DAY_LABELS[i];
+
+      day.appendChild(bar);
+      day.appendChild(label);
+      weekChartEl.appendChild(day);
+    });
   }
 
   function formatTime(s) {
@@ -277,10 +510,13 @@
     stopTimer();
     playChime();
     if (currentMode === "work") {
-      stats.sessions += 1;
-      stats.focusMinutes += 25;
-      saveStats();
-      const nextMode = stats.sessions % 4 === 0 ? "long" : "short";
+      const entry = todayEntry();
+      entry.sessions += 1;
+      entry.focusMinutes += settings.work;
+      saveHistory();
+      renderDailyStats();
+      renderWeekStats();
+      const nextMode = entry.sessions % settings.interval === 0 ? "long" : "short";
       switchMode(nextMode, false);
     } else {
       switchMode("work", false);
@@ -320,14 +556,47 @@
     btn.addEventListener("click", () => switchMode(btn.dataset.mode));
   });
 
+  settingsBtn.addEventListener("click", () => {
+    settingWork.value = settings.work;
+    settingShort.value = settings.short;
+    settingLong.value = settings.long;
+    settingInterval.value = settings.interval;
+    settingsOverlay.classList.add("open");
+  });
+
+  settingsCancel.addEventListener("click", () => {
+    settingsOverlay.classList.remove("open");
+  });
+
+  settingsOverlay.addEventListener("click", (e) => {
+    if (e.target === settingsOverlay) settingsOverlay.classList.remove("open");
+  });
+
+  settingsSave.addEventListener("click", () => {
+    const work = parseInt(settingWork.value, 10);
+    const short = parseInt(settingShort.value, 10);
+    const long = parseInt(settingLong.value, 10);
+    const interval = parseInt(settingInterval.value, 10);
+    if (![work, short, long, interval].every(n => Number.isInteger(n) && n > 0)) return;
+
+    settings = { work, short, long, interval };
+    saveSettings();
+    MODES = buildModes(settings);
+    updateModeButtonLabels();
+    switchMode(currentMode);
+    settingsOverlay.classList.remove("open");
+  });
+
   setInterval(() => {
     if (running) {
       document.title = formatTime(remaining) + " – " + MODES[currentMode].label;
     }
   }, 1000);
 
-  saveStats();
-  updateDisplay();
+  updateModeButtonLabels();
+  renderDailyStats();
+  renderWeekStats();
+  switchMode("work", false);
 })();
 </script>
 
